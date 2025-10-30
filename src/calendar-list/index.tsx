@@ -2,7 +2,8 @@ import findIndex from 'lodash/findIndex';
 import PropTypes from 'prop-types';
 import XDate from 'xdate';
 import React, {forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState} from 'react';
-import {AccessibilityInfo, FlatList, FlatListProps, View, ViewStyle} from 'react-native';
+import {AccessibilityInfo, View, ViewStyle} from 'react-native';
+import {FlashList, FlashListProps, FlashListRef} from '@shopify/flash-list';
 
 import {extractCalendarProps, extractHeaderProps} from '../componentUpdater';
 import {parseDate, toMarkingFormat, xdateToData} from '../interface';
@@ -21,7 +22,7 @@ const CALENDAR_HEIGHT = 360;
 const PAST_SCROLL_RANGE = 50;
 const FUTURE_SCROLL_RANGE = 50;
 
-export interface CalendarListProps extends CalendarProps, Omit<FlatListProps<any>, 'data' | 'renderItem'> {
+export interface CalendarListProps extends CalendarProps, Omit<FlashListProps<any>, 'data' | 'renderItem'> {
   /** Max amount of months allowed to scroll to the past. Default = 50 */
   pastScrollRange?: number;
   /** Max amount of months allowed to scroll to the future. Default = 50 */
@@ -97,7 +98,7 @@ const CalendarList = (props: CalendarListProps & ContextProp, ref: any) => {
     onScrollEndDrag,
     onMomentumScrollBegin,
     onMomentumScrollEnd,
-    /** FlatList props */
+    /** FlashList props */
     contentContainerStyle,
     onEndReachedThreshold,
     onEndReached,
@@ -121,7 +122,7 @@ const CalendarList = (props: CalendarListProps & ContextProp, ref: any) => {
   const shouldMeasureHeader = useRef(true);
 
   const style = useRef(styleConstructor(theme));
-  const list = useRef<any>();
+  const list = useRef<FlashListRef<any>>(null);
   const range = useRef(horizontal ? 1 : 3);
   const initialDate = useRef(parseDate(current) || new XDate());
   const visibleMonth = useRef(currentMonth);
@@ -144,16 +145,19 @@ const CalendarList = (props: CalendarListProps & ContextProp, ref: any) => {
   }, [propsStyle]);
 
   const initialDateIndex = useMemo(() => {
-    return findIndex(items, function(item) {
+    return findIndex(items, function (item) {
       return item.toString() === initialDate.current?.toString();
     });
   }, [items]);
 
-  const getDateIndex = useCallback((date: string) => {
-    return findIndex(items, function(item) {
-      return item.toString() === date.toString();
-    });
-  }, [items]);
+  const getDateIndex = useCallback(
+    (date: string) => {
+      return findIndex(items, function (item) {
+        return item.toString() === date.toString();
+      });
+    },
+    [items]
+  );
 
   useEffect(() => {
     if (current) {
@@ -193,76 +197,83 @@ const CalendarList = (props: CalendarListProps & ContextProp, ref: any) => {
     }
   };
 
-  const scrollToMonth = useCallback((date: XDate | string) => {
-    const scrollTo = parseDate(date);
-    const diffMonths = Math.round(initialDate?.current?.clone().setDate(1).diffMonths(scrollTo?.clone().setDate(1)));
-    const scrollAmount = calendarSize * (shouldFixRTL ? pastScrollRange - diffMonths : pastScrollRange + diffMonths);
+  const scrollToMonth = useCallback(
+    (date: XDate | string) => {
+      const scrollTo = parseDate(date);
+      const diffMonths = Math.round(initialDate?.current?.clone().setDate(1).diffMonths(scrollTo?.clone().setDate(1)));
+      const scrollAmount = calendarSize * (shouldFixRTL ? pastScrollRange - diffMonths : pastScrollRange + diffMonths);
 
-    if (scrollAmount !== 0) {
-      list?.current?.scrollToOffset({offset: scrollAmount, animated: animateScroll});
-    }
-  }, [calendarSize, shouldFixRTL, pastScrollRange, animateScroll]);
+      if (scrollAmount !== 0) {
+        list?.current?.scrollToOffset({offset: scrollAmount, animated: animateScroll});
+      }
+    },
+    [calendarSize, shouldFixRTL, pastScrollRange, animateScroll]
+  );
 
-  const addMonth = useCallback((count: number) => {
-    const day = currentMonth?.clone().addMonths(count, true);
-    if (sameMonth(day, currentMonth) || getDateIndex(day) === -1) {
-      return;
-    }
-    scrollToMonth(day);
-    setCurrentMonth(day);
-  }, [currentMonth, scrollToMonth]);
+  const addMonth = useCallback(
+    (count: number) => {
+      const day = currentMonth?.clone().addMonths(count, true);
+      if (sameMonth(day, currentMonth) || getDateIndex(day) === -1) {
+        return;
+      }
+      scrollToMonth(day);
+      setCurrentMonth(day);
+    },
+    [currentMonth, scrollToMonth]
+  );
 
-  const getMarkedDatesForItem = useCallback((item?: XDate) => {
-    if (markedDates && item) {
-      for (const [key, _] of Object.entries(markedDates)) {
-        if (sameMonth(new XDate(key), new XDate(item))) {
-          return markedDates;
+  const getMarkedDatesForItem = useCallback(
+    (item?: XDate) => {
+      if (markedDates && item) {
+        for (const [key, _] of Object.entries(markedDates)) {
+          if (sameMonth(new XDate(key), new XDate(item))) {
+            return markedDates;
+          }
         }
       }
-    }
-  }, [markedDates]);
+    },
+    [markedDates]
+  );
 
-  const getItemLayout = useCallback((_: ArrayLike<XDate> | undefined | null, index: number) => {
-    return {
-      length: calendarSize,
-      offset: calendarSize * index,
-      index
-    };
-  }, []);
-
-  const isDateInRange = useCallback((date) => {
-    for (let i = -range.current; i <= range.current; i++) {
-      const newMonth = currentMonth?.clone().addMonths(i, true);
-      if (sameMonth(date, newMonth)) {
-        return true;
+  const isDateInRange = useCallback(
+    date => {
+      for (let i = -range.current; i <= range.current; i++) {
+        const newMonth = currentMonth?.clone().addMonths(i, true);
+        if (sameMonth(date, newMonth)) {
+          return true;
+        }
       }
-    }
-    return false;
-  }, [currentMonth]);
+      return false;
+    },
+    [currentMonth]
+  );
 
-  const renderItem = useCallback(({item}: {item: XDate}) => {
-    const dateString = toMarkingFormat(item);
-    const [year, month] = dateString.split('-');
-    const testId = `${testID}.item_${year}-${month}`;
-    const onHeaderLayoutToPass = shouldMeasureHeader.current ? onHeaderLayout : undefined;
-    shouldMeasureHeader.current = false;
-    return (
-      <CalendarListItem
-        {...calendarProps}
-        testID={testId}
-        markedDates={getMarkedDatesForItem(item)}
-        item={item}
-        style={calendarStyle}
-        // @ts-expect-error - type mismatch - ScrollView's 'horizontal' is nullable
-        horizontal={horizontal}
-        calendarWidth={calendarWidth}
-        calendarHeight={calendarHeight}
-        scrollToMonth={scrollToMonth}
-        visible={isDateInRange(item)}
-        onHeaderLayout={onHeaderLayoutToPass}
-      />
-    );
-  }, [horizontal, calendarStyle, calendarWidth, testID, getMarkedDatesForItem, isDateInRange, calendarProps]);
+  const renderItem = useCallback(
+    ({item}: {item: XDate}) => {
+      const dateString = toMarkingFormat(item);
+      const [year, month] = dateString.split('-');
+      const testId = `${testID}.item_${year}-${month}`;
+      const onHeaderLayoutToPass = shouldMeasureHeader.current ? onHeaderLayout : undefined;
+      shouldMeasureHeader.current = false;
+      return (
+        <CalendarListItem
+          {...calendarProps}
+          testID={testId}
+          markedDates={getMarkedDatesForItem(item)}
+          item={item}
+          style={calendarStyle}
+          // @ts-expect-error - type mismatch - ScrollView's 'horizontal' is nullable
+          horizontal={horizontal}
+          calendarWidth={calendarWidth}
+          calendarHeight={calendarHeight}
+          scrollToMonth={scrollToMonth}
+          visible={isDateInRange(item)}
+          onHeaderLayout={onHeaderLayoutToPass}
+        />
+      );
+    },
+    [horizontal, calendarStyle, calendarWidth, testID, getMarkedDatesForItem, isDateInRange, calendarProps]
+  );
 
   const renderStaticHeader = () => {
     if (shouldUseStaticHeader) {
@@ -289,20 +300,23 @@ const CalendarList = (props: CalendarListProps & ContextProp, ref: any) => {
     viewAreaCoveragePercentThreshold: 20
   });
 
-  const onViewableItemsChanged = useCallback(({viewableItems}: any) => {
-    const newVisibleMonth = parseDate(viewableItems[0]?.item);
-    if (shouldFixRTL) {
-      const centerIndex = items.findIndex((item) => isEqual(parseDate(current), item));
-      const adjustedOffset = centerIndex - items.findIndex((item) => isEqual(newVisibleMonth, item));
-      visibleMonth.current = items[centerIndex + adjustedOffset];
-      setCurrentMonth(visibleMonth.current);
-    } else {
-      if (!sameDate(visibleMonth?.current, newVisibleMonth)) {
-        visibleMonth.current = newVisibleMonth;
+  const onViewableItemsChanged = useCallback(
+    ({viewableItems}: any) => {
+      const newVisibleMonth = parseDate(viewableItems[0]?.item);
+      if (shouldFixRTL) {
+        const centerIndex = items.findIndex(item => isEqual(parseDate(current), item));
+        const adjustedOffset = centerIndex - items.findIndex(item => isEqual(newVisibleMonth, item));
+        visibleMonth.current = items[centerIndex + adjustedOffset];
         setCurrentMonth(visibleMonth.current);
+      } else {
+        if (!sameDate(visibleMonth?.current, newVisibleMonth)) {
+          visibleMonth.current = newVisibleMonth;
+          setCurrentMonth(visibleMonth.current);
+        }
       }
-    }
-  }, [items, shouldFixRTL, current]);
+    },
+    [items, shouldFixRTL, current]
+  );
 
   const viewabilityConfigCallbackPairs = useRef([
     {
@@ -313,16 +327,13 @@ const CalendarList = (props: CalendarListProps & ContextProp, ref: any) => {
 
   return (
     <View style={style.current.flatListContainer} testID={testID}>
-      <FlatList
+      <FlashList
         ref={list}
-        windowSize={shouldFixRTL ? pastScrollRange + futureScrollRange + 1 : undefined}
         style={listStyle}
         showsVerticalScrollIndicator={showScrollIndicator}
         showsHorizontalScrollIndicator={showScrollIndicator}
         data={items}
         renderItem={renderItem}
-        getItemLayout={getItemLayout}
-        initialNumToRender={range.current}
         initialScrollIndex={initialDateIndex}
         viewabilityConfigCallbackPairs={viewabilityConfigCallbackPairs.current}
         testID={`${testID}.list`}
